@@ -204,7 +204,8 @@ double calculate_recall(const vector<vector<int>> &results, const vector<vector<
 int main(int argc, char *argv[])
 {
     // Default to SIFT dataset
-    string dataset_dir = "../data_o/data_o/sift";
+    // Test with GLOVE dataset (按RECONSTRUCTION_GUIDE.md要求)
+    string dataset_dir = "../data_o/data_o/glove";
     bool use_cache = false;
     bool save_cache = false;
     int custom_ef_search = -1;

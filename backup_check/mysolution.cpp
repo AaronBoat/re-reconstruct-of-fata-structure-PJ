@@ -12,7 +12,7 @@ static const int M = 30;
 static const int EF_CONSTRUCTION = 200;
 static const int EF_SEARCH = 200; 
 static const float ML = 1.0f / log(2.0f); // ~1.44
-static const float GAMMA = 1.0f; // 用于 RobustPrune (修复: 从0.25改为1.0避免过度剪枝)
+static const float GAMMA = 0.25f; // 用于 RobustPrune
 
 // --- 线程局部存储优化 (Optimization 2) ---
 struct VisitedBuffer {
@@ -226,49 +226,65 @@ void Solution::search_layer_build(const float* query, vector<int>& candidates,
 }
 
 // 最终查询阶段使用的搜索 (Layer 0使用量化 + 扁平图)
-// [修复版本] 使用标准HNSW双堆逻辑，避免搜索提前终止
 void Solution::search_layer_query(const float* query, const unsigned char* query_quant,
                                   vector<int>& candidates, const vector<int>& ep, 
                                   int ef, int lc) const {
     
     tls_visited.prepare(num_vectors);
 
-    // 标准HNSW双堆策略：
-    // C (candidates): 最小堆，距离近的先出队 - 用于探索
-    // W (results): 最大堆，距离远的在堆顶 - 用于保留最优结果
-    priority_queue<pair<float, int>, vector<pair<float, int>>, greater<pair<float, int>>> C; // min-heap
-    priority_queue<pair<float, int>> W; // max-heap (默认)
+    // 使用数组模拟堆，比STL快 (Optimization 5)
+    // W_arr: 结果集 (维持有序)
+    Candidate W_arr[256]; // ef <= 200, 256够用
+    int W_size = 0;
 
-    // 初始化入口点
+    // 辅助: 插入W
+    auto add_to_W = [&](int id, float d) {
+        if (W_size < ef || d < W_arr[W_size-1].dist) {
+            // 插入排序
+            int pos = W_size;
+            if (W_size < ef) W_size++;
+            
+            while (pos > 0 && W_arr[pos-1].dist > d) {
+                if (pos < ef) W_arr[pos] = W_arr[pos-1];
+                pos--;
+            }
+            if (pos < ef) W_arr[pos] = {d, id};
+        }
+    };
+
+    // [性能重构] 替代 priority_queue：使用 thread_local vector + 手动堆管理
+    // 优势：零内存分配 (Zero Allocation)，消除动态内存开销
+    tls_candidate_queue.clear();
+
+    // 初始化
     for (int pid : ep) {
         if (!tls_visited.is_visited(pid)) {
             tls_visited.mark(pid);
             float d;
-            // [临时] 禁用量化以验证浮点距离正确性
-            // if (lc == 0 && use_quantization && query_quant) {
-            //     d = dist_l2_quant(pid, query_quant, dimension);
-            // } else {
+            // 策略：Layer 0 使用量化距离，其他层使用精确距离
+            if (lc == 0 && use_quantization && query_quant) {
+                d = dist_l2_quant(pid, query_quant, dimension);
+            } else {
                 d = dist_l2_float_avx(query, &data_flat[pid * dimension], dimension);
-            // }
-            C.push({d, pid});
-            W.push({d, pid});
-            if ((int)W.size() > ef) W.pop();
+            }
+            add_to_W(pid, d);
+            tls_candidate_queue.push_back({d, pid});
         }
     }
+    // 建立最小堆
+    make_heap(tls_candidate_queue.begin(), tls_candidate_queue.end(), greater<pair<float, int>>());
 
-    // 主搜索循环
-    while (!C.empty()) {
-        auto curr = C.top();
-        C.pop();
+    while (!tls_candidate_queue.empty()) {
+        // 取堆顶（最小距离的候选点）
+        pop_heap(tls_candidate_queue.begin(), tls_candidate_queue.end(), greater<pair<float, int>>());
+        auto curr = tls_candidate_queue.back();
+        tls_candidate_queue.pop_back();
         
         float dist_c = curr.first;
         int nid = curr.second;
         
-        // [关键修复] 只有当候选集中最近的点都比结果集最远的点远时才停止
-        // 确保 W 至少有一个元素才比较
-        if (!W.empty() && dist_c > W.top().first) {
-            break;
-        }
+        // 剪枝：当前最近的候选点比结果集中最远的点还远，且结果集已满
+        if (W_size == ef && dist_c > W_arr[W_size-1].dist) break;
 
         // 获取邻居指针
         const int* neighbors_ptr;
@@ -291,36 +307,36 @@ void Solution::search_layer_query(const float* query, const unsigned char* query
             if (tls_visited.is_visited(neighbor_id)) continue;
             tls_visited.mark(neighbor_id);
 
-            // Prefetch（保留优化）
+            // Prefetch
             if (lc == 0 && i + 2 < neighbors_count) {
-                _mm_prefetch((const char*)&data_flat[neighbors_ptr[i+2] * dimension], _MM_HINT_T0);
+                 // 量化数据预取
+                 if (use_quantization) {
+                    _mm_prefetch((const char*)&data_quant[(long long)neighbors_ptr[i+2] * dimension], _MM_HINT_T0);
+                 } else {
+                    _mm_prefetch((const char*)&data_flat[neighbors_ptr[i+2] * dimension], _MM_HINT_T0);
+                 }
             }
 
             float d;
-            // [临时] 全部使用浮点距离
-            // if (lc == 0 && use_quantization && query_quant) {
-            //     d = dist_l2_quant(neighbor_id, query_quant, dimension);
-            // } else {
+            if (lc == 0 && use_quantization && query_quant) {
+                d = dist_l2_quant(neighbor_id, query_quant, dimension);
+            } else {
                 d = dist_l2_float_avx(query, &data_flat[neighbor_id * dimension], dimension);
-            // }
+            }
 
-            // [关键修复] 判断条件：结果集未满 或 距离更近
-            if ((int)W.size() < ef || d < W.top().first) {
-                C.push({d, neighbor_id});
-                W.push({d, neighbor_id});
-                if ((int)W.size() > ef) W.pop();
+            if (W_size < ef || d < W_arr[W_size-1].dist) {
+                add_to_W(neighbor_id, d);
+                // 手动堆 Push
+                tls_candidate_queue.push_back({d, neighbor_id});
+                push_heap(tls_candidate_queue.begin(), tls_candidate_queue.end(), greater<pair<float, int>>());
             }
         }
     }
 
-    // 收集结果
     candidates.clear();
-    candidates.reserve(W.size());
-    while (!W.empty()) {
-        candidates.push_back(W.top().second);
-        W.pop();
+    for(int i=0; i<W_size; ++i) {
+        candidates.push_back(W_arr[i].id);
     }
-    // W pop出来是降序，但这里不需要反转（后续处理会重排）
 }
 
 // --- 选邻居策略 (RobustPrune) ---
@@ -660,47 +676,23 @@ void Solution::search(const vector<float>& query, int* res) {
     }
     ep_container[0] = curr_ep;
 
-    // 3. 底层搜索 (Layer 0) - 使用扁平图
+    // 3. 底层搜索 (Layer 0) - 使用量化距离 (SQ + Flattened Graph)
     vector<int> candidates;
     search_layer_query(query.data(), q_quant_ptr, candidates, ep_container, EF_SEARCH, 0);
 
     // 4. 填充结果
-    // [重要] search_layer_query 从最大堆 W pop 出来的顺序是距离从远到近（倒序）
-    // 需要反转才能得到最近的10个
-    std::reverse(candidates.begin(), candidates.end());
+    // 由于 search_layer_query 返回的是 candidates (可能乱序)，需要排序取Top-10?
+    // search_layer_query 内部是用 W_arr (插入排序维护的)。
+    // 但最后输出到 vector 时是直接 push 的。
+    // 如果 W_arr 是按距离升序排列的（最远在末尾），我们需要取前10个。
+    // 在 search_layer_query 的实现中，W_arr 存的是最小的 ef 个元素，且是有序的。
+    // 因此 candidates 里的元素也是有序的 (距离从小到大)。
     
     for (int i = 0; i < 10 && i < (int)candidates.size(); ++i) {
         res[i] = candidates[i];
     }
-    // 如果不足10个，补位
+    // 如果不足10个，补位 (虽然EF_SEARCH=200，几乎不可能不足)
     for (int i = candidates.size(); i < 10; ++i) {
         res[i] = candidates.empty() ? 0 : candidates[0];
     }
 }
-
-// [调试功能] 暴力搜索 - 用于验证HNSW结果的正确性
-#ifdef DEBUG_BRUTE_FORCE
-void Solution::search_brute_force(const vector<float>& query, int* res) const {
-    if (num_vectors == 0) return;
-    
-    // 计算所有点的距离
-    vector<pair<float, int>> all_dists;
-    all_dists.reserve(num_vectors);
-    
-    for (int i = 0; i < num_vectors; ++i) {
-        float d = dist_l2_float_avx(query.data(), &data_flat[i * dimension], dimension);
-        all_dists.push_back({d, i});
-    }
-    
-    // 排序
-    sort(all_dists.begin(), all_dists.end());
-    
-    // 取前10个
-    for (int i = 0; i < 10 && i < (int)all_dists.size(); ++i) {
-        res[i] = all_dists[i].second;
-    }
-    for (int i = all_dists.size(); i < 10; ++i) {
-        res[i] = all_dists.empty() ? 0 : all_dists[0].second;
-    }
-}
-#endif
