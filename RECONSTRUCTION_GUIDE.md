@@ -27,7 +27,7 @@ public:
 ```
 
 **提交文件要求**
-- 最终提交文件：mysolution.cpp 和 mysolution.h ，打包成压缩包，其中不能含有任何cout
+- 最终提交文件：Mysolution.cpp 和 Mysolution.h ，打包成压缩包，其中不能含有任何cout
 - 最终接口：class solution: 
 1. void build(int d, const vector<float>& base) d是向量维度，base是底库向量P
 2. void search(const vector<float>& query, int* res)

@@ -7,12 +7,12 @@
 #include <functional> // 解决 greater<T> 未定义
 #include <utility>    // 解决 pair 未定义
 
-// --- 常量配置 (严格遵守指南) ---
-static const int M = 30;
-static const int EF_CONSTRUCTION = 200;
+// --- 常量配置 (重排序优化方案) ---
+static const int M = 40;                  // 优化后的参数
+static const int EF_CONSTRUCTION = 300;   // 优化后的参数
 static const int EF_SEARCH = 200;
 static const float ML = 1.0f / log(2.0f); // ~1.44
-static const float GAMMA = 1.0f;          // 用于 RobustPrune (修复: 从0.25改为1.0避免过度剪枝)
+static const float GAMMA = 1.0f;          // 用于 RobustPrune
 
 // --- 线程局部存储优化 (Optimization 2) ---
 struct VisitedBuffer
@@ -794,22 +794,39 @@ void Solution::search(const vector<float> &query, int *res)
     vector<int> candidates;
     search_layer_query(query.data(), q_quant_ptr, candidates, ep_container, EF_SEARCH, 0);
 
-    // 4. 填充结果
-    // 由于 search_layer_query 返回的是 candidates (可能乱序)，需要排序取Top-10?
-    // search_layer_query 内部是用 W_arr (插入排序维护的)。
-    // 但最后输出到 vector 时是直接 push 的。
-    // 如果 W_arr 是按距离升序排列的（最远在末尾），我们需要取前10个。
-    // 在 search_layer_query 的实现中，W_arr 存的是最小的 ef 个元素，且是有序的。
-    // 因此 candidates 里的元素也是有序的 (距离从小到大)。
-
-    for (int i = 0; i < 10 && i < (int)candidates.size(); ++i)
-    {
-        res[i] = candidates[i];
+    // ---------------------------------------------------------
+    // 【关键修复】重排序 (Re-ranking) - 使用精确浮点距离
+    // ---------------------------------------------------------
+    // Layer 0 搜索使用量化距离，快但有误差
+    // 必须用精确距离重新排序，才能保证召回率
+    
+    tls_candidate_queue.clear();
+    
+    for (int cand_id : candidates) {
+        // 使用 AVX 精确浮点距离重新计算
+        float exact_dist = dist_l2_float_avx(query.data(), &data_flat[cand_id * dimension], dimension);
+        tls_candidate_queue.push_back({exact_dist, cand_id});
     }
-    // 如果不足10个，补位 (虽然EF_SEARCH=200，几乎不可能不足)
-    for (int i = candidates.size(); i < 10; ++i)
+
+    // 排序：按距离从小到大
+    // 只需要 Top 10，使用 partial_sort 比 sort 更快
+    if (tls_candidate_queue.size() > 10) {
+        std::partial_sort(tls_candidate_queue.begin(), 
+                          tls_candidate_queue.begin() + 10, 
+                          tls_candidate_queue.end());
+    } else {
+        std::sort(tls_candidate_queue.begin(), tls_candidate_queue.end());
+    }
+
+    // 4. 填充结果
+    for (int i = 0; i < 10 && i < (int)tls_candidate_queue.size(); ++i)
     {
-        res[i] = candidates.empty() ? 0 : candidates[0];
+        res[i] = tls_candidate_queue[i].second;
+    }
+    // 补位
+    for (int i = tls_candidate_queue.size(); i < 10; ++i)
+    {
+        res[i] = tls_candidate_queue.empty() ? 0 : tls_candidate_queue[0].second;
     }
 }
 
