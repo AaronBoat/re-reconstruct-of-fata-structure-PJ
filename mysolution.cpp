@@ -12,7 +12,7 @@ static const int M = 30;
 static const int EF_CONSTRUCTION = 200;
 static const int EF_SEARCH = 200;
 static const float ML = 1.0f / log(2.0f); // ~1.44
-static const float GAMMA = 0.25f;         // 用于 RobustPrune
+static const float GAMMA = 1.0f;          // 用于 RobustPrune (修复: 从0.25改为1.0避免过度剪枝)
 
 // --- 线程局部存储优化 (Optimization 2) ---
 struct VisitedBuffer
@@ -267,6 +267,7 @@ void Solution::search_layer_build(const float *query, vector<int> &candidates,
 }
 
 // 最终查询阶段使用的搜索 (Layer 0使用量化 + 扁平图)
+// [修复版本] 使用标准HNSW双堆逻辑，避免搜索提前终止
 void Solution::search_layer_query(const float *query, const unsigned char *query_quant,
                                   vector<int> &candidates, const vector<int> &ep,
                                   int ef, int lc) const
@@ -811,3 +812,35 @@ void Solution::search(const vector<float> &query, int *res)
         res[i] = candidates.empty() ? 0 : candidates[0];
     }
 }
+
+// [调试功能] 暴力搜索 - 用于验证HNSW结果的正确性
+#ifdef DEBUG_BRUTE_FORCE
+void Solution::search_brute_force(const vector<float> &query, int *res) const
+{
+    if (num_vectors == 0)
+        return;
+
+    // 计算所有点的距离
+    vector<pair<float, int>> all_dists;
+    all_dists.reserve(num_vectors);
+
+    for (int i = 0; i < num_vectors; ++i)
+    {
+        float d = dist_l2_float_avx(query.data(), &data_flat[i * dimension], dimension);
+        all_dists.push_back({d, i});
+    }
+
+    // 排序
+    sort(all_dists.begin(), all_dists.end());
+
+    // 取前10个
+    for (int i = 0; i < 10 && i < (int)all_dists.size(); ++i)
+    {
+        res[i] = all_dists[i].second;
+    }
+    for (int i = all_dists.size(); i < 10; ++i)
+    {
+        res[i] = all_dists.empty() ? 0 : all_dists[0].second;
+    }
+}
+#endif

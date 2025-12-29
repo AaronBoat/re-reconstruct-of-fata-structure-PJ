@@ -76,6 +76,11 @@ private:
                             
     // 扁平化 Layer 0
     void flatten_layer0();
+    
+    // [调试用] 暴力搜索 (Golden Standard)
+    #ifdef DEBUG_BRUTE_FORCE
+    void search_brute_force(const vector<float>& query, int* res) const;
+    #endif
 };
 
 #endif // MYSOLUTION_H
