@@ -1,4 +1,4 @@
-#include "mysolution.h"
+#include "MySolution.h"
 #include <limits>
 #include <random>
 #include <omp.h>
@@ -8,8 +8,8 @@
 #include <utility>    // 解决 pair 未定义
 
 // --- 常量配置 (重排序优化方案) ---
-static const int M = 40;                  // 优化后的参数
-static const int EF_CONSTRUCTION = 300;   // 优化后的参数
+static const int M = 40;                // 优化后的参数
+static const int EF_CONSTRUCTION = 300; // 优化后的参数
 static const int EF_SEARCH = 200;
 static const float ML = 1.0f / log(2.0f); // ~1.44
 static const float GAMMA = 1.0f;          // 用于 RobustPrune
@@ -799,10 +799,11 @@ void Solution::search(const vector<float> &query, int *res)
     // ---------------------------------------------------------
     // Layer 0 搜索使用量化距离，快但有误差
     // 必须用精确距离重新排序，才能保证召回率
-    
+
     tls_candidate_queue.clear();
-    
-    for (int cand_id : candidates) {
+
+    for (int cand_id : candidates)
+    {
         // 使用 AVX 精确浮点距离重新计算
         float exact_dist = dist_l2_float_avx(query.data(), &data_flat[cand_id * dimension], dimension);
         tls_candidate_queue.push_back({exact_dist, cand_id});
@@ -810,11 +811,14 @@ void Solution::search(const vector<float> &query, int *res)
 
     // 排序：按距离从小到大
     // 只需要 Top 10，使用 partial_sort 比 sort 更快
-    if (tls_candidate_queue.size() > 10) {
-        std::partial_sort(tls_candidate_queue.begin(), 
-                          tls_candidate_queue.begin() + 10, 
+    if (tls_candidate_queue.size() > 10)
+    {
+        std::partial_sort(tls_candidate_queue.begin(),
+                          tls_candidate_queue.begin() + 10,
                           tls_candidate_queue.end());
-    } else {
+    }
+    else
+    {
         std::sort(tls_candidate_queue.begin(), tls_candidate_queue.end());
     }
 
