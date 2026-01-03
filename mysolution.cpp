@@ -1,7 +1,7 @@
 #include "MySolution.h"
 #include <limits>
 #include <random>
-#include <thread>     // std::this_thread
+#include <thread> // std::this_thread
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -500,6 +500,13 @@ void Solution::build(int d, const vector<float> &base)
 
     // 初始化节点
     nodes.resize(num_vectors);
+    
+    // Phase 3 优化: 预分配内存减少动态分配
+    // 预估每个节点的最大层级约为 log(N)/log(2) ~= 20 层
+    for (int i = 0; i < num_vectors; ++i)
+    {
+        nodes[i].neighbors.reserve(max(5, (int)(log(num_vectors) / log(2.0))));
+    }
 
     // 锁 (每个节点一把锁) - 使用 std::mutex 替代 omp_lock_t
     vector<std::mutex> node_locks(num_vectors);
@@ -593,10 +600,13 @@ void Solution::build(int d, const vector<float> &base)
                 int M_limit = (lc == 0) ? M_max0 : M_max;
 
                 // Robust Prune Implementation inside loop
-                for (const auto &pair : sorted_cand)
+                // Phase 4 优化: 限制候选池大小，只考虑前 2*M 个最近的候选点
+                int max_candidates = min((int)sorted_cand.size(), M_limit * 2);
+                for (int idx = 0; idx < max_candidates; ++idx)
                 {
                     if (selected_neighbors.size() >= (size_t)M_limit)
                         break;
+                    const auto &pair = sorted_cand[idx];
                     int cand_id = pair.second;
                     float dist_to_q = pair.first;
 
@@ -622,56 +632,47 @@ void Solution::build(int d, const vector<float> &base)
                 nodes[i].neighbors[lc] = selected_neighbors;
 
                 // 2. 将 i 连接到 selected 中的每个节点 (需要加锁)
+                // Phase 2 优化: 减少锁内工作量
                 for (int neighbor_id : selected_neighbors)
                 {
-                    // 使用 std::lock_guard 替代 omp_set_lock/omp_unset_lock
                     std::lock_guard<std::mutex> lock(node_locks[neighbor_id]);
                     vector<int> &target_neighbors = nodes[neighbor_id].neighbors[lc];
 
-                    // 再次执行 RobustPrune 如果满了
-                    bool need_prune = false;
-                    target_neighbors.push_back(i); // 先加入
-                    if (target_neighbors.size() > (size_t)M_limit)
+                    // 快速路径: 如果未满，直接插入
+                    if (target_neighbors.size() < (size_t)M_limit)
                     {
-                        need_prune = true;
+                        target_neighbors.push_back(i);
                     }
-
-                    if (need_prune)
+                    else
                     {
-                        // 重新计算该邻居的所有连接的距离
+                        // 慢速路径: 需要剪枝
+                        // 使用简化策略: 计算距离后保留最近的 M_limit 个
+                        // 这比完整的 RobustPrune 快很多，同时在反向连接时影响较小
                         vector<pair<float, int>> t_cand;
-                        // 这里 query 变成了 data_flat[neighbor_id]
+                        t_cand.reserve(target_neighbors.size() + 1);
+                        
                         const float *target_vec = &data_flat[neighbor_id * dimension];
+                        
+                        // 计算所有现有邻居的距离
                         for (int tn : target_neighbors)
                         {
                             t_cand.push_back({dist_l2_float_avx(target_vec, &data_flat[tn * dimension], dimension), tn});
                         }
-                        sort(t_cand.begin(), t_cand.end());
-
-                        vector<int> new_conn;
-                        for (const auto &pair : t_cand)
+                        // 添加新节点
+                        t_cand.push_back({dist_l2_float_avx(target_vec, &data_flat[i * dimension], dimension), i});
+                        
+                        // 部分排序: 只需要找到最小的 M_limit 个
+                        std::partial_sort(t_cand.begin(), 
+                                        t_cand.begin() + M_limit, 
+                                        t_cand.end());
+                        
+                        // 保留最近的 M_limit 个
+                        target_neighbors.clear();
+                        target_neighbors.reserve(M_limit);
+                        for (int j = 0; j < M_limit; ++j)
                         {
-                            if (new_conn.size() >= (size_t)M_limit)
-                                break;
-                            int c_id = pair.second;
-                            float d_q = pair.first;
-                            bool good = true;
-                            for (int ex : new_conn)
-                            {
-                                float d_ex = dist_l2_float_avx(
-                                    &data_flat[c_id * dimension],
-                                    &data_flat[ex * dimension],
-                                    dimension);
-                                if (d_ex * GAMMA < d_q)
-                                {
-                                    good = false;
-                                    break;
-                                }
-                            }
-                            if (good)
-                                new_conn.push_back(c_id);
+                            target_neighbors.push_back(t_cand[j].second);
                         }
-                        target_neighbors = new_conn;
                     }
                 }
 
