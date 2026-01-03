@@ -1,11 +1,15 @@
 #include "MySolution.h"
 #include <limits>
 #include <random>
+#include <thread>     // std::this_thread
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <immintrin.h>
 #include <queue>      // 解决 priority_queue 未定义
 #include <functional> // 解决 greater<T> 未定义
 #include <utility>    // 解决 pair 未定义
+#include <mutex>      // 替代 omp_lock_t
 
 // --- 常量配置 (重排序优化方案) ---
 static const int M = 40;                // 优化后的参数
@@ -462,7 +466,7 @@ void Solution::get_neighbors_heuristic(vector<int> &result, const vector<int> &c
             // 下面的距离是从外部传入的吗？不。
             // 这里的 GAMMA 判定通常需要知道 curr 到 query 的距离。
             // 由于缺乏 query 信息，我们退化为只选最近的 K 个（不使用 Gamma 剪枝），
-            // 或者这部分逻辑在 build 主循环中实现更好。
+            // 或者这部分逻辑在 build 主循环实现更好。
 
             // *决策*: 为了代码结构清晰，我们在 build 主循环中内联 RobustPrune 逻辑，
             // 这里的函数仅作简单的 copy。
@@ -474,7 +478,8 @@ void Solution::get_neighbors_heuristic(vector<int> &result, const vector<int> &c
 // 辅助：生成随机层级
 int Solution::get_random_level()
 {
-    static thread_local std::mt19937 rng(12345 + omp_get_thread_num());
+    // 使用 hash<thread::id> 为每个线程生成唯一种子
+    static thread_local std::mt19937 rng(12345 + std::hash<std::thread::id>{}(std::this_thread::get_id()));
     static thread_local std::uniform_real_distribution<float> dist(0.0, 1.0);
     float r = dist(rng);
     return (int)(-log(r) * ML);
@@ -496,10 +501,8 @@ void Solution::build(int d, const vector<float> &base)
     // 初始化节点
     nodes.resize(num_vectors);
 
-    // 锁 (每个节点一把锁)
-    vector<omp_lock_t> node_locks(num_vectors);
-    for (int i = 0; i < num_vectors; ++i)
-        omp_init_lock(&node_locks[i]);
+    // 锁 (每个节点一把锁) - 使用 std::mutex 替代 omp_lock_t
+    vector<std::mutex> node_locks(num_vectors);
 
     // 第一个点
     int level0 = get_random_level();
@@ -508,13 +511,17 @@ void Solution::build(int d, const vector<float> &base)
     enter_point = 0;
 
 // 并行构建
+#ifdef _OPENMP
 #pragma omp parallel
+#endif
     {
         // 线程局部随机数生成器在 get_random_level 中处理
         // 访问缓存
         tls_visited.prepare(num_vectors);
 
+#ifdef _OPENMP
 #pragma omp for schedule(dynamic, 128)
+#endif
         for (int i = 1; i < num_vectors; ++i)
         {
             const float *query = &data_flat[i * dimension];
@@ -617,7 +624,8 @@ void Solution::build(int d, const vector<float> &base)
                 // 2. 将 i 连接到 selected 中的每个节点 (需要加锁)
                 for (int neighbor_id : selected_neighbors)
                 {
-                    omp_set_lock(&node_locks[neighbor_id]);
+                    // 使用 std::lock_guard 替代 omp_set_lock/omp_unset_lock
+                    std::lock_guard<std::mutex> lock(node_locks[neighbor_id]);
                     vector<int> &target_neighbors = nodes[neighbor_id].neighbors[lc];
 
                     // 再次执行 RobustPrune 如果满了
@@ -665,8 +673,6 @@ void Solution::build(int d, const vector<float> &base)
                         }
                         target_neighbors = new_conn;
                     }
-
-                    omp_unset_lock(&node_locks[neighbor_id]);
                 }
 
                 ep_container = selected_neighbors; // 下一层的入口
@@ -675,7 +681,9 @@ void Solution::build(int d, const vector<float> &base)
             // 更新全局入口点 (如果是更高层)
             if (level > max_level)
             {
+#ifdef _OPENMP
 #pragma omp critical
+#endif
                 {
                     if (level > max_level)
                     {
@@ -686,10 +694,6 @@ void Solution::build(int d, const vector<float> &base)
             }
         }
     }
-
-    // 清理锁
-    for (int i = 0; i < num_vectors; ++i)
-        omp_destroy_lock(&node_locks[i]);
 
     // 构建后优化：Layer 0 扁平化
     flatten_layer0();
@@ -721,7 +725,9 @@ void Solution::flatten_layer0()
     final_graph_flat.resize(total_size);
 
 // 填充数据
+#ifdef _OPENMP
 #pragma omp parallel for
+#endif
     for (int i = 0; i < num_vectors; ++i)
     {
         size_t offset = final_graph_offsets[i];

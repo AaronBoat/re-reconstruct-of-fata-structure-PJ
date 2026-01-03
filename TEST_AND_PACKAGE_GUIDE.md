@@ -445,6 +445,8 @@ $canSubmit = Test-Submission
 
 ### 6.2 打包命令
 
+**⚠️ 重要：文件必须直接放在 tar 根目录，不要创建子文件夹！**
+
 ```powershell
 # 清理工作目录
 Write-Host "清理临时文件..." -ForegroundColor Yellow
@@ -465,7 +467,7 @@ if ((Test-Path "MySolution.cpp") -and (Test-Path "MySolution.h")) {
     exit 1
 }
 
-# 打包
+# 打包 - 文件直接放在 tar 根目录
 Write-Host "`n正在打包..." -ForegroundColor Yellow
 tar -cf MySolution.tar MySolution.cpp MySolution.h
 
@@ -487,7 +489,7 @@ if ($?) {
 }
 ```
 
-**预期输出**:
+**预期输出（正确格式）**:
 ```
 ✓ 打包成功: MySolution.tar
 
@@ -496,6 +498,12 @@ if ($?) {
   MySolution.h
 
 打包文件大小: 42.5 KB
+```
+
+**❌ 错误格式示例（不要这样）**:
+```
+cpp/MySolution.cpp
+cpp/MySolution.h
 ```
 
 ---
