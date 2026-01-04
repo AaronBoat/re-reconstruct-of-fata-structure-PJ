@@ -13,7 +13,7 @@
 
 // --- 常量配置 (重排序优化方案) ---
 static const int M = 40;                // 优化后的参数
-static const int EF_CONSTRUCTION = 300; // 优化后的参数
+static const int EF_CONSTRUCTION = 500; // 进一步提升召回率
 static const int EF_SEARCH = 200;
 static const float ML = 1.0f / log(2.0f); // ~1.44
 static const float GAMMA = 1.0f;          // 用于 RobustPrune
@@ -500,7 +500,7 @@ void Solution::build(int d, const vector<float> &base)
 
     // 初始化节点
     nodes.resize(num_vectors);
-    
+
     // Phase 3 优化: 预分配内存减少动态分配
     // 预估每个节点的最大层级约为 log(N)/log(2) ~= 20 层
     for (int i = 0; i < num_vectors; ++i)
@@ -650,9 +650,9 @@ void Solution::build(int d, const vector<float> &base)
                         // 这比完整的 RobustPrune 快很多，同时在反向连接时影响较小
                         vector<pair<float, int>> t_cand;
                         t_cand.reserve(target_neighbors.size() + 1);
-                        
+
                         const float *target_vec = &data_flat[neighbor_id * dimension];
-                        
+
                         // 计算所有现有邻居的距离
                         for (int tn : target_neighbors)
                         {
@@ -660,12 +660,12 @@ void Solution::build(int d, const vector<float> &base)
                         }
                         // 添加新节点
                         t_cand.push_back({dist_l2_float_avx(target_vec, &data_flat[i * dimension], dimension), i});
-                        
+
                         // 部分排序: 只需要找到最小的 M_limit 个
-                        std::partial_sort(t_cand.begin(), 
-                                        t_cand.begin() + M_limit, 
-                                        t_cand.end());
-                        
+                        std::partial_sort(t_cand.begin(),
+                                          t_cand.begin() + M_limit,
+                                          t_cand.end());
+
                         // 保留最近的 M_limit 个
                         target_neighbors.clear();
                         target_neighbors.reserve(M_limit);
