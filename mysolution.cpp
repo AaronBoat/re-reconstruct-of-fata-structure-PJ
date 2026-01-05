@@ -11,10 +11,10 @@
 #include <utility>    // 解决 pair 未定义
 #include <mutex>      // 替代 omp_lock_t
 
-// --- 常量配置 (重排序优化方案) ---
-static const int M = 40;                // 优化后的参数
-static const int EF_CONSTRUCTION = 500; // 进一步提升召回率
-static const int EF_SEARCH = 200;
+// --- 常量配置 (优化召回率方案) ---
+static const int M = 36;                // 平衡参数：保持图质量
+static const int EF_CONSTRUCTION = 250; // 平衡构建时间与召回率
+static const int EF_SEARCH = 400;       // 提升搜索候选池以改善召回率
 static const float ML = 1.0f / log(2.0f); // ~1.44
 static const float GAMMA = 1.0f;          // 用于 RobustPrune
 
@@ -281,7 +281,8 @@ void Solution::search_layer_query(const float *query, const unsigned char *query
 
     // 使用数组模拟堆，比STL快 (Optimization 5)
     // W_arr: 结果集 (维持有序)
-    Candidate W_arr[256]; // ef <= 200, 256够用
+    // 修复: 增大数组以支持 EF_SEARCH=400
+    Candidate W_arr[512]; // 支持 ef <= 400
     int W_size = 0;
 
     // 辅助: 插入W
@@ -316,15 +317,9 @@ void Solution::search_layer_query(const float *query, const unsigned char *query
         {
             tls_visited.mark(pid);
             float d;
-            // 策略：Layer 0 使用量化距离，其他层使用精确距离
-            if (lc == 0 && use_quantization && query_quant)
-            {
-                d = dist_l2_quant(pid, query_quant, dimension);
-            }
-            else
-            {
-                d = dist_l2_float_avx(query, &data_flat[pid * dimension], dimension);
-            }
+            // 关键修复：为提升召回率，Layer 0 也使用 Float 精确距离
+            // 量化距离误差会导致候选集质量下降，影响召回率
+            d = dist_l2_float_avx(query, &data_flat[pid * dimension], dimension);
             add_to_W(pid, d);
             tls_candidate_queue.push_back({d, pid});
         }
@@ -372,29 +367,14 @@ void Solution::search_layer_query(const float *query, const unsigned char *query
                 continue;
             tls_visited.mark(neighbor_id);
 
-            // Prefetch
+            // Prefetch - 始终预取 Float 数据
             if (lc == 0 && i + 2 < neighbors_count)
             {
-                // 量化数据预取
-                if (use_quantization)
-                {
-                    _mm_prefetch((const char *)&data_quant[(long long)neighbors_ptr[i + 2] * dimension], _MM_HINT_T0);
-                }
-                else
-                {
-                    _mm_prefetch((const char *)&data_flat[neighbors_ptr[i + 2] * dimension], _MM_HINT_T0);
-                }
+                _mm_prefetch((const char *)&data_flat[neighbors_ptr[i + 2] * dimension], _MM_HINT_T0);
             }
 
-            float d;
-            if (lc == 0 && use_quantization && query_quant)
-            {
-                d = dist_l2_quant(neighbor_id, query_quant, dimension);
-            }
-            else
-            {
-                d = dist_l2_float_avx(query, &data_flat[neighbor_id * dimension], dimension);
-            }
+            // 关键修复：始终使用 Float 精确距离计算
+            float d = dist_l2_float_avx(query, &data_flat[neighbor_id * dimension], dimension);
 
             if (W_size < ef || d < W_arr[W_size - 1].dist)
             {
