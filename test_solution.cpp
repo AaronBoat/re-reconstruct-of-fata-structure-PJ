@@ -290,25 +290,30 @@ int main(int argc, char *argv[])
         cout << "Loaded " << num_vectors << " vectors of dimension " << dimension << endl;
 
         // Build index
-        cout << "\n" << string(60, '=') << endl;
+        cout << "\n"
+             << string(60, '=') << endl;
         cout << "[BUILD PHASE] Starting HNSW construction..." << endl;
         cout << "  Vectors: " << num_vectors << " x " << dimension << " dims" << endl;
         cout << "  Expected time: ~5-15 minutes" << endl;
         cout << string(60, '=') << endl;
         cout << flush;
-        
+
         auto build_start = chrono::high_resolution_clock::now();
         solution.build(dimension, base_vectors);
         auto build_end = chrono::high_resolution_clock::now();
         auto build_time = chrono::duration_cast<chrono::milliseconds>(build_end - build_start).count();
 
-        cout << "\n" << string(60, '=') << endl;
+        cout << "\n"
+             << string(60, '=') << endl;
         cout << "[BUILD COMPLETE]" << endl;
         cout << "  Build time: " << build_time << " ms";
         cout << " (" << fixed << setprecision(2) << (build_time / 1000.0) << "s)" << endl;
-        if (build_time < 2000000) {
+        if (build_time < 2000000)
+        {
             cout << "  Status: \u2713 PASS (< 2000s)" << endl;
-        } else {
+        }
+        else
+        {
             cout << "  Status: \u2717 TIMEOUT RISK!" << endl;
         }
         cout << string(60, '=') << endl;
@@ -361,7 +366,8 @@ int main(int argc, char *argv[])
     }
 
     // Perform searches
-    cout << "\n" << string(60, '=') << endl;
+    cout << "\n"
+         << string(60, '=') << endl;
     cout << "[SEARCH PHASE] Performing " << queries.size() << " searches..." << endl;
     cout << string(60, '=') << endl;
 
@@ -371,10 +377,11 @@ int main(int argc, char *argv[])
     int progress_step = max(1, (int)queries.size() / 10);
     for (size_t i = 0; i < queries.size(); ++i)
     {
-        if (i > 0 && i % progress_step == 0) {
+        if (i > 0 && i % progress_step == 0)
+        {
             auto now = chrono::high_resolution_clock::now();
             auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - search_start).count();
-            cout << "  Progress: " << (i * 100 / queries.size()) << "% (" << i << "/" << queries.size() 
+            cout << "  Progress: " << (i * 100 / queries.size()) << "% (" << i << "/" << queries.size()
                  << ") - Avg: " << fixed << setprecision(2) << (double)elapsed / i << "ms/query" << endl;
         }
         int results[10];
@@ -397,12 +404,14 @@ int main(int argc, char *argv[])
     auto search_end = chrono::high_resolution_clock::now();
     auto search_time = chrono::duration_cast<chrono::milliseconds>(search_end - search_start).count();
 
-    cout << "\n" << string(60, '=') << endl;
+    cout << "\n"
+         << string(60, '=') << endl;
     cout << "[SEARCH COMPLETE]" << endl;
     cout << "  Total time: " << search_time << " ms" << endl;
     cout << "  Average time: " << fixed << setprecision(2)
          << (double)search_time / queries.size() << " ms/query";
-    if (search_time / queries.size() < 2.0) {
+    if (search_time / queries.size() < 2.0)
+    {
         cout << " \u2713 Excellent";
     }
     cout << endl;
@@ -415,17 +424,22 @@ int main(int argc, char *argv[])
         double recall_1 = calculate_recall(all_results, groundtruth, 1);
         double recall_10 = calculate_recall(all_results, groundtruth, 10);
 
-        cout << "\n" << string(60, '=') << endl;
+        cout << "\n"
+             << string(60, '=') << endl;
         cout << "[FINAL RESULTS]" << endl;
         cout << string(60, '=') << endl;
         cout << "Recall@1:  " << fixed << setprecision(4) << recall_1;
-        if (recall_1 >= 0.95) cout << " \u2713";
+        if (recall_1 >= 0.95)
+            cout << " \u2713";
         cout << endl;
-        
+
         cout << "Recall@10: " << fixed << setprecision(4) << recall_10;
-        if (recall_10 >= 0.98) {
+        if (recall_10 >= 0.98)
+        {
             cout << " \u2713 PASS" << endl;
-        } else {
+        }
+        else
+        {
             cout << " \u2717 FAIL (need >= 0.98)" << endl;
             cout << "  Gap: -" << fixed << setprecision(2) << ((0.98 - recall_10) * 100) << "%" << endl;
         }

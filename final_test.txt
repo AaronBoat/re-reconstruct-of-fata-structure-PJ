@@ -22,7 +22,7 @@ Loaded 1192514 vectors of dimension 100
 
 ============================================================
 [BUILD COMPLETE]
-  Build time: 361622 ms (361.62s)
+  Build time: 525475 ms (525.48s)
   Status: 鉁?PASS (< 2000s)
 ============================================================
 
@@ -37,23 +37,23 @@ Loaded groundtruth for 100 queries
 ============================================================
 Query 0 results: 446644 1017437 120345 950152 53269 1120421 677076 1047695 885078 174913 
 Query 1 results: 329132 1110684 303179 317396 1075491 990563 849312 101675 973266 523580 
-Query 2 results: 8290 996369 777253 828446 26920 1093329 1184571 301205 126653 653544 
+Query 2 results: 8290 996369 777253 828446 26920 1184571 301205 126653 653544 965317 
 Query 3 results: 311042 938768 925310 1089272 186430 793102 630568 303908 122390 113694 
 Query 4 results: 733404 496391 515727 1052952 837741 305477 544535 255889 427501 612362 
-  Progress: 10% (10/100) - Avg: 1.40ms/query
-  Progress: 20% (20/100) - Avg: 1.40ms/query
-  Progress: 30% (30/100) - Avg: 1.50ms/query
-  Progress: 40% (40/100) - Avg: 1.48ms/query
-  Progress: 50% (50/100) - Avg: 1.44ms/query
-  Progress: 60% (60/100) - Avg: 1.45ms/query
-  Progress: 70% (70/100) - Avg: 1.44ms/query
-  Progress: 80% (80/100) - Avg: 1.44ms/query
-  Progress: 90% (90/100) - Avg: 1.43ms/query
+  Progress: 10% (10/100) - Avg: 3.20ms/query
+  Progress: 20% (20/100) - Avg: 3.20ms/query
+  Progress: 30% (30/100) - Avg: 3.47ms/query
+  Progress: 40% (40/100) - Avg: 3.42ms/query
+  Progress: 50% (50/100) - Avg: 3.34ms/query
+  Progress: 60% (60/100) - Avg: 3.37ms/query
+  Progress: 70% (70/100) - Avg: 3.33ms/query
+  Progress: 80% (80/100) - Avg: 3.30ms/query
+  Progress: 90% (90/100) - Avg: 3.29ms/query
 
 ============================================================
 [SEARCH COMPLETE]
-  Total time: 142 ms
-  Average time: 1.42 ms/query 鉁?Excellent
+  Total time: 329 ms
+  Average time: 3.29 ms/query
 ============================================================
 
 [EVALUATION] Calculating recall...
@@ -62,5 +62,5 @@ Query 4 results: 733404 496391 515727 1052952 837741 305477 544535 255889 427501
 [FINAL RESULTS]
 ============================================================
 Recall@1:  1.0000 鉁?
-Recall@10: 0.9840 鉁?PASS
+Recall@10: 0.9900 鉁?PASS
 ============================================================

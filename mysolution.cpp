@@ -11,10 +11,10 @@
 #include <utility>    // 解决 pair 未定义
 #include <mutex>      // 替代 omp_lock_t
 
-// --- 常量配置 (优化召回率方案) ---
-static const int M = 36;                // 平衡参数：保持图质量
-static const int EF_CONSTRUCTION = 250; // 平衡构建时间与召回率
-static const int EF_SEARCH = 400;       // 提升搜索候选池以改善召回率
+// --- 常量配置 (高召回率优化方案) ---
+static const int M = 36;                  // Keep unchanged
+static const int EF_CONSTRUCTION = 300;   // Increased from 250 (Safe build limit)
+static const int EF_SEARCH = 800;         // Increased from 400 (Aggressive recall boost)
 static const float ML = 1.0f / log(2.0f); // ~1.44
 static const float GAMMA = 1.0f;          // 用于 RobustPrune
 
@@ -281,8 +281,8 @@ void Solution::search_layer_query(const float *query, const unsigned char *query
 
     // 使用数组模拟堆，比STL快 (Optimization 5)
     // W_arr: 结果集 (维持有序)
-    // 修复: 增大数组以支持 EF_SEARCH=400
-    Candidate W_arr[512]; // 支持 ef <= 400
+    // 关键修复: 扩大缓冲区以支持 EF_SEARCH=800
+    Candidate W_arr[2048]; // 支持 ef <= 800+ (安全余地)
     int W_size = 0;
 
     // 辅助: 插入W
